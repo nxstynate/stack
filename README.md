@@ -8,13 +8,17 @@
 
 Stack adds a single node that lets you layer and blend textures with per-layer blend modes, opacity, and masking — similar to layer stacking in Photoshop or composite maps in other 3D tools.
 
-![Stack Splash Image](assets/stack-splash.webp)
+<p align="center">
+    <img src="assets/stack-splash.webp" width="300">
+</p>
 
 ---
 
 ## Features
 
-![Stack Screenshot](./assets/stack-screenshot.webp)
+<p align="center">
+    <img src="assets/stack-screenshot.webp" width="300">
+</p>
 
 - **Multiple layers** — add as many layers as you need
 - **Blend modes** — Normal, Multiply, Add, Subtract, Screen, Overlay, Soft Light, Difference, Darken, Lighten
