@@ -19,7 +19,7 @@ Stack adds a single node that lets you layer and blend textures with per-layer b
 
 ## Install
 
-1. Download the `stack_node.zip` file.
+1. Download the `stack.zip` file.
 2. In Blender, go to **Edit → Preferences → Add-ons**.
 3. Click **Install** and select the zip file.
 4. Enable the **Stack** add-on.
@@ -28,7 +28,7 @@ Stack adds a single node that lets you layer and blend textures with per-layer b
 
 1. Open the **Shader Editor**.
 2. **Add → Custom → Stack**.
-3. Connect the **Color** output to your material.
+3. Connect the **Color** output to your one of your material inputs material.
 4. Add layers, set blend modes, adjust opacity, and connect textures.
 
 ## Requirements
