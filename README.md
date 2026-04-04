@@ -1,7 +1,7 @@
 # Stack
 
 <p align="center">
-    <img src="assets/stack_logo_transparent.svg" width="300">
+    <img src="assets/stack_logo_transparent.svg" width="600">
 </p>
 
 **Layer blending node for Blender's Shader Editor.**
