@@ -19,26 +19,29 @@
 import bpy
 
 
-def find_node(tree_name, node_name):
-    """Locate a node by tree name and node name."""
+def find_node_by_group(group_name):
+    """Find a StackNode by its internal node group name.
+    Each Stack instance creates a unique group (e.g. '.stack_140234567'),
+    so this is an unambiguous lookup even across multiple materials."""
     for mat in bpy.data.materials:
-        if mat.node_tree and mat.node_tree.name == tree_name:
-            if node_name in mat.node_tree.nodes:
-                return mat.node_tree.nodes[node_name]
-    tree = bpy.data.node_groups.get(tree_name)
-    if tree and node_name in tree.nodes:
-        return tree.nodes[node_name]
+        if mat.node_tree:
+            for node in mat.node_tree.nodes:
+                if hasattr(node, "node_tree") and node.node_tree:
+                    if node.node_tree.name == group_name:
+                        return node
+    for tree in bpy.data.node_groups:
+        for node in tree.nodes:
+            if hasattr(node, "node_tree") and node.node_tree:
+                if node.node_tree.name == group_name:
+                    return node
     return None
 
 
-def get_tree_name(node):
-    """Get the node tree name that contains this node."""
-    for mat in bpy.data.materials:
-        if mat.node_tree and node.name in mat.node_tree.nodes:
-            return mat.node_tree.name
-    for tree in bpy.data.node_groups:
-        if node.name in tree.nodes:
-            return tree.name
+def get_node_id(node):
+    """Get the unique identifier for a StackNode.
+    Uses the internal node group name which is unique per instance."""
+    if node.node_tree:
+        return node.node_tree.name
     return ""
 
 

@@ -19,7 +19,7 @@
 from bpy.props import EnumProperty, IntProperty, StringProperty
 from bpy.types import Operator
 
-from .utils import find_node
+from .utils import find_node_by_group
 
 
 class STACK_OT_add_layer(Operator):
@@ -28,11 +28,10 @@ class STACK_OT_add_layer(Operator):
     bl_label = "Add Layer"
     bl_options = {'REGISTER', 'UNDO'}
 
-    node_name: StringProperty()
-    tree_name: StringProperty()
+    group_name: StringProperty()
 
     def execute(self, context):
-        node = find_node(self.tree_name, self.node_name)
+        node = find_node_by_group(self.group_name)
         if node is None:
             self.report({'ERROR'}, "Node not found")
             return {'CANCELLED'}
@@ -56,12 +55,11 @@ class STACK_OT_remove_layer(Operator):
     bl_label = "Remove Layer"
     bl_options = {'REGISTER', 'UNDO'}
 
-    node_name: StringProperty()
-    tree_name: StringProperty()
+    group_name: StringProperty()
     layer_index: IntProperty()
 
     def execute(self, context):
-        node = find_node(self.tree_name, self.node_name)
+        node = find_node_by_group(self.group_name)
         if node is None:
             self.report({'ERROR'}, "Node not found")
             return {'CANCELLED'}
@@ -96,13 +94,12 @@ class STACK_OT_move_layer(Operator):
     bl_label = "Move Layer"
     bl_options = {'REGISTER', 'UNDO'}
 
-    node_name: StringProperty()
-    tree_name: StringProperty()
+    group_name: StringProperty()
     layer_index: IntProperty()
     direction: EnumProperty(items=[("UP", "Up", ""), ("DOWN", "Down", "")])
 
     def execute(self, context):
-        node = find_node(self.tree_name, self.node_name)
+        node = find_node_by_group(self.group_name)
         if node is None:
             self.report({'ERROR'}, "Node not found")
             return {'CANCELLED'}

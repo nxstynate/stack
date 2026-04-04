@@ -21,7 +21,7 @@ from bpy.props import CollectionProperty
 from bpy.types import ShaderNodeCustomGroup
 
 from .properties import StackLayerProperties
-from .utils import get_tree_name
+from .utils import get_node_id
 
 
 class StackNode(ShaderNodeCustomGroup):
@@ -280,13 +280,12 @@ class StackNode(ShaderNodeCustomGroup):
     # ------------------------------------------------------------------
 
     def draw_buttons(self, context, layout):
-        tree_name = get_tree_name(self)
+        nid = get_node_id(self)
 
         op = layout.operator(
             "stack_node.add_layer", text="Add Layer", icon='ADD',
         )
-        op.node_name = self.name
-        op.tree_name = tree_name
+        op.group_name = nid
 
         layout.separator()
 
@@ -313,16 +312,14 @@ class StackNode(ShaderNodeCustomGroup):
             op = header.operator(
                 "stack_node.move_layer", text="", icon='TRIA_UP',
             )
-            op.node_name = self.name
-            op.tree_name = tree_name
+            op.group_name = nid
             op.layer_index = i
             op.direction = 'DOWN'
 
             op = header.operator(
                 "stack_node.move_layer", text="", icon='TRIA_DOWN',
             )
-            op.node_name = self.name
-            op.tree_name = tree_name
+            op.group_name = nid
             op.layer_index = i
             op.direction = 'UP'
 
@@ -330,8 +327,7 @@ class StackNode(ShaderNodeCustomGroup):
                 op = header.operator(
                     "stack_node.remove_layer", text="", icon='X',
                 )
-                op.node_name = self.name
-                op.tree_name = tree_name
+                op.group_name = nid
                 op.layer_index = i
 
             if layer.collapsed:
