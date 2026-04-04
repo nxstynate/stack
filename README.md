@@ -1,6 +1,8 @@
 # Stack
 
-![Stack Logo](assets/stack_logo_transparent.svg)
+<p align="center">
+    <img src="assets/stack_logo_transparent.svg" width="300">
+</p>
 
 **Layer blending node for Blender's Shader Editor.**
 
