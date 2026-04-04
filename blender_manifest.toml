@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "stack_node"
-version = "1.0.0"
+version = "1.0.1"
 name = "Stack"
 tagline = "Layer blending node with blend modes, opacity, and masking"
 maintainer = "NXSTYNATE"
