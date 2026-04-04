@@ -1,0 +1,27 @@
+schema_version = "1.0.0"
+
+id = "stack_node"
+version = "1.0.0"
+name = "Stack"
+tagline = "Layer blending node with blend modes, opacity, and masking"
+maintainer = "NXSTYNATE"
+type = "add-on"
+
+tags = ["Node"]
+
+blender_version_min = "4.5.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+copyright = [
+  "2026 NXSTYNATE",
+]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".*",
+  "*.zip",
+]
