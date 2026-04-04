@@ -1,12 +1,18 @@
 # Stack
 
+![Stack Logo](assets/stack_logo_transparent.svg)
+
 **Layer blending node for Blender's Shader Editor.**
 
 Stack adds a single node that lets you layer and blend textures with per-layer blend modes, opacity, and masking — similar to layer stacking in Photoshop or composite maps in other 3D tools.
 
+![Stack Splash Image](assets/stack-splash.webp)
+
 ---
 
 ## Features
+
+![Stack Screenshot](./assets/stack-screenshot.webp)
 
 - **Multiple layers** — add as many layers as you need
 - **Blend modes** — Normal, Multiply, Add, Subtract, Screen, Overlay, Soft Light, Difference, Darken, Lighten
