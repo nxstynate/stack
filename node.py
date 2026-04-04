@@ -61,7 +61,66 @@ class StackNode(ShaderNodeCustomGroup):
             bpy.data.node_groups.remove(self.node_tree)
 
     def copy(self, original):
-        self.node_tree = original.node_tree.copy()
+        # Create an independent copy of the internal node group
+        if original.node_tree:
+            self.node_tree = original.node_tree.copy()
+        # layers CollectionProperty is auto-copied by Blender,
+        # but we need to rebuild internals for the new group
+        if self.node_tree and len(self.layers) > 0:
+            self.rebuild_internals()
+
+    def validate(self):
+        """Recover from broken state (e.g. cross-material paste).
+        If we have a node_tree with sockets but no layers, reconstruct
+        the layers from the existing socket names."""
+        if self.node_tree is None:
+            return False
+
+        # Count how many layers the sockets imply
+        max_index = -1
+        for item in self.node_tree.interface.items_tree:
+            if not hasattr(item, 'in_out') or item.in_out != 'INPUT':
+                continue
+            name = item.name
+            if name.startswith("Index ") and name.endswith(" Color"):
+                try:
+                    idx = int(name.split(" ")[1])
+                    max_index = max(max_index, idx)
+                except (ValueError, IndexError):
+                    pass
+
+        expected_layers = max_index + 1
+
+        if expected_layers <= 0:
+            # No sockets at all — needs full init
+            if len(self.layers) == 0:
+                layer = self.layers.add()
+                layer.layer_index = 0
+                layer.layer_name = "Layer 0"
+                layer.blend_mode = "MIX"
+                layer.opacity = 1.0
+                layer.enabled = True
+                self.add_layer_to_group(0)
+                self.rebuild_internals()
+                return True
+            return False
+
+        if len(self.layers) == expected_layers:
+            # Layers match sockets — nothing to fix
+            return False
+
+        # Mismatch: reconstruct layers from sockets
+        self.layers.clear()
+        for i in range(expected_layers):
+            layer = self.layers.add()
+            layer.layer_index = i
+            layer.layer_name = f"Layer {i}"
+            layer.blend_mode = "MIX"
+            layer.opacity = 1.0
+            layer.enabled = True
+
+        self.rebuild_internals()
+        return True
 
     # ------------------------------------------------------------------
     # Socket management (non-destructive)
@@ -280,6 +339,9 @@ class StackNode(ShaderNodeCustomGroup):
     # ------------------------------------------------------------------
 
     def draw_buttons(self, context, layout):
+        # Auto-recover if layers are missing (e.g. cross-material paste)
+        self.validate()
+
         nid = get_node_id(self)
 
         op = layout.operator(
