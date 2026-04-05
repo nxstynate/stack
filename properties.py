@@ -30,10 +30,15 @@ from .utils import find_owner_node
 
 
 def _on_layer_prop_changed(prop, context):
-    """Rebuild internal blend chain when a layer property changes."""
+    """Rebuild internal blend chain and persist when a layer property changes."""
+    # Import here to avoid circular import at module level.
+    from .node import _suppress_updates
+    if _suppress_updates:
+        return
     node = find_owner_node(prop)
     if node:
         node.rebuild_internals()
+        node.save_layers_to_json()
 
 
 class StackLayerProperties(PropertyGroup):
@@ -43,6 +48,7 @@ class StackLayerProperties(PropertyGroup):
         name="Layer Name",
         default="",
         description="Custom name for this layer",
+        update=lambda self, ctx: _on_layer_prop_changed(self, ctx),
     )
 
     blend_mode: EnumProperty(
@@ -74,6 +80,7 @@ class StackLayerProperties(PropertyGroup):
         name="Collapsed",
         default=False,
         description="Collapse this layer's controls",
+        update=lambda self, ctx: _on_layer_prop_changed(self, ctx),
     )
 
     layer_index: IntProperty(name="Layer Index", default=0)

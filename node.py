@@ -16,12 +16,29 @@
 
 # node.py — StackNode (ShaderNodeCustomGroup)
 
+import json
+
 import bpy
 from bpy.props import CollectionProperty
 from bpy.types import ShaderNodeCustomGroup
 
 from .properties import StackLayerProperties
 from .utils import get_node_id
+
+DEBUG = True
+
+# Key used for the ID-property on node_tree (persists in .blend files)
+_STORE_KEY = "_stack_layers"
+
+# Guard flag: suppresses property-update callbacks during bulk operations
+# (copy, rebuild_group, load_layers_from_json) to prevent cascading
+# rebuild_internals / save_layers_to_json calls mid-construction.
+_suppress_updates = False
+
+
+def _dbg(*args):
+    if DEBUG:
+        print("[Stack]", *args)
 
 
 class StackNode(ShaderNodeCustomGroup):
@@ -31,13 +48,89 @@ class StackNode(ShaderNodeCustomGroup):
     bl_icon = 'NODE_COMPOSITING'
     bl_width_default = 240
 
+    # Runtime-only: Blender does NOT serialize CollectionProperty on custom
+    # nodes.  We persist the data via JSON in node_tree[_STORE_KEY] instead.
     layers: CollectionProperty(type=StackLayerProperties)
+
+    # ------------------------------------------------------------------
+    # Persistence helpers — JSON <-> CollectionProperty
+    # ------------------------------------------------------------------
+
+    def save_layers_to_json(self):
+        """Serialize *self.layers* into node_tree[_STORE_KEY]."""
+        if not self.node_tree:
+            return
+        data = []
+        for layer in self.layers:
+            data.append({
+                "layer_name":  layer.layer_name,
+                "blend_mode":  layer.blend_mode,
+                "opacity":     layer.opacity,
+                "enabled":     layer.enabled,
+                "collapsed":   layer.collapsed,
+                "layer_index": layer.layer_index,
+            })
+        self.node_tree[_STORE_KEY] = json.dumps(data)
+        _dbg(f"save_layers_to_json -> {self.node_tree.name}: {len(data)} layers")
+
+    def load_layers_from_json(self):
+        """Restore *self.layers* from node_tree[_STORE_KEY].
+        Returns True if layers were restored, False if nothing to do."""
+        global _suppress_updates
+        if not self.node_tree:
+            return False
+        raw = self.node_tree.get(_STORE_KEY)
+        if raw is None:
+            _dbg(f"load_layers_from_json -> {self.node_tree.name}: no stored data")
+            return False
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            _dbg(f"load_layers_from_json -> {self.node_tree.name}: bad JSON")
+            return False
+        if not data:
+            return False
+
+        _suppress_updates = True
+        try:
+            # Only restore if the runtime collection is empty/out of sync
+            if len(self.layers) == len(data):
+                # Already populated (e.g. undo step) — just make sure values match
+                for i, d in enumerate(data):
+                    layer = self.layers[i]
+                    layer.layer_name  = d.get("layer_name", "")
+                    layer.blend_mode  = d.get("blend_mode", "MIX")
+                    layer.opacity     = d.get("opacity", 1.0)
+                    layer.enabled     = d.get("enabled", True)
+                    layer.collapsed   = d.get("collapsed", False)
+                    layer.layer_index = d.get("layer_index", i)
+                _dbg(f"load_layers_from_json -> {self.node_tree.name}: "
+                     f"refreshed {len(data)} existing layers")
+                return True
+
+            # Full restore — clear and recreate
+            self.layers.clear()
+            for i, d in enumerate(data):
+                layer = self.layers.add()
+                layer.layer_name  = d.get("layer_name", "")
+                layer.blend_mode  = d.get("blend_mode", "MIX")
+                layer.opacity     = d.get("opacity", 1.0)
+                layer.enabled     = d.get("enabled", True)
+                layer.collapsed   = d.get("collapsed", False)
+                layer.layer_index = d.get("layer_index", i)
+
+            _dbg(f"load_layers_from_json -> {self.node_tree.name}: "
+                 f"restored {len(data)} layers from JSON")
+            return True
+        finally:
+            _suppress_updates = False
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def init(self, context):
+        _dbg(f"init() called -- id(self)={id(self)}")
         self.node_tree = bpy.data.node_groups.new(
             f".stack_{id(self)}", 'ShaderNodeTree',
         )
@@ -55,72 +148,84 @@ class StackNode(ShaderNodeCustomGroup):
 
         self.add_layer_to_group(0)
         self.rebuild_internals()
+        self.save_layers_to_json()
 
     def free(self):
         if self.node_tree:
             bpy.data.node_groups.remove(self.node_tree)
 
     def copy(self, original):
-        # Create an independent copy of the internal node group
-        if original.node_tree:
-            self.node_tree = original.node_tree.copy()
-        # layers CollectionProperty is auto-copied by Blender,
-        # but we need to rebuild internals for the new group
-        if self.node_tree and len(self.layers) > 0:
-            self.rebuild_internals()
+        """Called when this node is duplicated or pasted.
 
-    def validate(self):
-        """Recover from broken state (e.g. cross-material paste).
-        If we have a node_tree with sockets but no layers, reconstruct
-        the layers from the existing socket names."""
-        if self.node_tree is None:
-            return False
+        Blender's internal state is fragile during copy() — modifying
+        the node_tree interface (adding/removing sockets) here can crash.
+        We keep this callback minimal: just copy the tree, restore
+        layers, and schedule a deferred rebuild via timer.
+        """
+        global _suppress_updates
+        _suppress_updates = True
+        try:
+            _dbg(f"copy() called -- original.node_tree={original.node_tree}")
+            _dbg(f"copy() self.node_tree={self.node_tree}, "
+                 f"same_tree={self.node_tree == original.node_tree}, "
+                 f"inputs_before={len(self.inputs)}")
 
-        # Count how many layers the sockets imply
-        max_index = -1
-        for item in self.node_tree.interface.items_tree:
-            if not hasattr(item, 'in_out') or item.in_out != 'INPUT':
-                continue
-            name = item.name
-            if name.startswith("Index ") and name.endswith(" Color"):
+            # Read layer JSON from the original's node_tree.
+            src_json = None
+            if original.node_tree:
+                src_json = original.node_tree.get(_STORE_KEY)
+
+            # Make an independent copy of the node_tree.
+            new_tree = original.node_tree.copy()
+
+            # Force Blender to re-sync node sockets by re-assigning.
+            self.node_tree = new_tree
+
+            # Restore CollectionProperty from JSON.
+            if src_json:
                 try:
-                    idx = int(name.split(" ")[1])
-                    max_index = max(max_index, idx)
-                except (ValueError, IndexError):
-                    pass
+                    data = json.loads(src_json)
+                except (json.JSONDecodeError, TypeError):
+                    data = None
 
-        expected_layers = max_index + 1
+                if data:
+                    self.layers.clear()
+                    for i, d in enumerate(data):
+                        layer = self.layers.add()
+                        layer.layer_name  = d.get("layer_name", "")
+                        layer.blend_mode  = d.get("blend_mode", "MIX")
+                        layer.opacity     = d.get("opacity", 1.0)
+                        layer.enabled     = d.get("enabled", True)
+                        layer.collapsed   = d.get("collapsed", False)
+                        layer.layer_index = d.get("layer_index", i)
 
-        if expected_layers <= 0:
-            # No sockets at all — needs full init
-            if len(self.layers) == 0:
-                layer = self.layers.add()
-                layer.layer_index = 0
-                layer.layer_name = "Layer 0"
-                layer.blend_mode = "MIX"
-                layer.opacity = 1.0
-                layer.enabled = True
-                self.add_layer_to_group(0)
-                self.rebuild_internals()
-                return True
-            return False
+            # Schedule a deferred rebuild via timer — this runs after
+            # Blender finishes the paste operation and is in a safe state.
+            tree_name = new_tree.name
+            def _deferred_rebuild():
+                _dbg(f"deferred_rebuild timer fired for {tree_name}")
+                from .utils import find_node_by_group
+                node = find_node_by_group(tree_name)
+                if node:
+                    _dbg(f"deferred_rebuild: found node, "
+                         f"layers={len(node.layers)}, "
+                         f"inputs={len(node.inputs)}")
+                    node.rebuild_internals()
+                    node.save_layers_to_json()
+                    # Force re-sync by nudging node_tree assignment.
+                    nt = node.node_tree
+                    node.node_tree = nt
+                    _dbg(f"deferred_rebuild: done, "
+                         f"inputs={len(node.inputs)}")
+                else:
+                    _dbg(f"deferred_rebuild: node not found for {tree_name}")
+                return None  # None = don't repeat
+            bpy.app.timers.register(_deferred_rebuild, first_interval=0.0)
 
-        if len(self.layers) == expected_layers:
-            # Layers match sockets — nothing to fix
-            return False
-
-        # Mismatch: reconstruct layers from sockets
-        self.layers.clear()
-        for i in range(expected_layers):
-            layer = self.layers.add()
-            layer.layer_index = i
-            layer.layer_name = f"Layer {i}"
-            layer.blend_mode = "MIX"
-            layer.opacity = 1.0
-            layer.enabled = True
-
-        self.rebuild_internals()
-        return True
+            _dbg(f"copy() done -- layers: {len(self.layers)}, "
+                 f"inputs: {len(self.inputs)}")
+        finally:
+            _suppress_updates = False
 
     # ------------------------------------------------------------------
     # Socket management (non-destructive)
@@ -239,6 +344,7 @@ class StackNode(ShaderNodeCustomGroup):
                 inp.default_value = 1.0
 
         self.rebuild_internals()
+        self.save_layers_to_json()
 
     # ------------------------------------------------------------------
     # Rebuild internal blend chain (non-destructive to sockets)
@@ -339,8 +445,14 @@ class StackNode(ShaderNodeCustomGroup):
     # ------------------------------------------------------------------
 
     def draw_buttons(self, context, layout):
-        # Auto-recover if layers are missing (e.g. cross-material paste)
-        self.validate()
+        # Lazy restore: if layers are empty but JSON exists, restore now.
+        # This catches file-reload edge cases where the load handler
+        # hasn't run yet.
+        if len(self.layers) == 0 and self.node_tree:
+            if self.node_tree.get(_STORE_KEY):
+                _dbg("draw_buttons: lazy restore triggered")
+                self.load_layers_from_json()
+                self.rebuild_internals()
 
         nid = get_node_id(self)
 

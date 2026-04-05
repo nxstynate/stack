@@ -23,10 +23,11 @@ Stacks and blends texture layers with blend modes, opacity, and masking.
 """
 
 import bpy
+from bpy.app.handlers import persistent
 
 from .properties import StackLayerProperties
 from .operators import STACK_OT_add_layer, STACK_OT_remove_layer, STACK_OT_move_layer
-from .node import StackNode
+from .node import StackNode, _dbg
 from .menu import NODE_MT_stack_custom, stack_menu_draw
 
 classes = (
@@ -39,13 +40,71 @@ classes = (
 )
 
 
+# ------------------------------------------------------------------
+# Helpers to iterate every StackNode in the file
+# ------------------------------------------------------------------
+
+def _iter_stack_nodes():
+    """Yield every StackNode instance across all materials and node groups."""
+    for mat in bpy.data.materials:
+        if mat.node_tree:
+            for node in mat.node_tree.nodes:
+                if node.bl_idname == "StackNodeType":
+                    yield node
+    for tree in bpy.data.node_groups:
+        for node in tree.nodes:
+            if node.bl_idname == "StackNodeType":
+                yield node
+
+
+# ------------------------------------------------------------------
+# App handlers (persistent — survive addon reload)
+# ------------------------------------------------------------------
+
+@persistent
+def _stack_load_post(filepath):
+    """Restore CollectionProperty data from JSON after file load."""
+    _dbg("load_post handler fired")
+    count = 0
+    for node in _iter_stack_nodes():
+        if node.load_layers_from_json():
+            node.rebuild_internals()
+            count += 1
+    _dbg(f"load_post: restored {count} StackNode(s)")
+
+
+@persistent
+def _stack_save_pre(filepath):
+    """Ensure JSON is up-to-date before the file is written."""
+    _dbg("save_pre handler fired")
+    for node in _iter_stack_nodes():
+        node.save_layers_to_json()
+
+
+# ------------------------------------------------------------------
+# Registration
+# ------------------------------------------------------------------
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.NODE_MT_add.append(stack_menu_draw)
 
+    bpy.app.handlers.load_post.append(_stack_load_post)
+    bpy.app.handlers.save_pre.append(_stack_save_pre)
+
+    _dbg("Stack addon registered")
+
 
 def unregister():
+    # Remove handlers first
+    if _stack_save_pre in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.remove(_stack_save_pre)
+    if _stack_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_stack_load_post)
+
     bpy.types.NODE_MT_add.remove(stack_menu_draw)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+
+    _dbg("Stack addon unregistered")

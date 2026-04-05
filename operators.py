@@ -46,6 +46,7 @@ class STACK_OT_add_layer(Operator):
 
         node.add_layer_to_group(idx)
         node.rebuild_internals()
+        node.save_layers_to_json()
         return {'FINISHED'}
 
 
@@ -85,6 +86,7 @@ class STACK_OT_remove_layer(Operator):
             layer.layer_index = i
 
         node.rebuild_group(old_to_new=old_to_new)
+        # rebuild_group already calls save_layers_to_json
         return {'FINISHED'}
 
 
@@ -124,4 +126,5 @@ class STACK_OT_move_layer(Operator):
             layer.layer_index = i
 
         node.rebuild_group(old_to_new=old_to_new)
+        # rebuild_group already calls save_layers_to_json
         return {'FINISHED'}
