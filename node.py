@@ -16,19 +16,18 @@
 
 # node.py — StackNode (ShaderNodeCustomGroup)
 #
-# Persistence strategy:
-#   All layer state is stored as individual ID properties on the
-#   node_tree datablock (e.g. node_tree["_sl_count"],
-#   node_tree["_sl_0_blend"]).  Blender natively serializes ID
-#   properties to .blend files — no serialization code needed.
+# Persistence:
+#   `layers` is a CollectionProperty registered as an annotation on this
+#   ShaderNodeCustomGroup subclass.  Blender saves the node (and its
+#   RNA-registered properties) as part of the owning NodeTree datablock,
+#   so the collection persists through save/reload with no extra work.
 #
-#   The CollectionProperty 'layers' is a runtime-only cache rebuilt
-#   on demand from the ID properties.
+#   The internal mix-node chain lives in `node_tree`, which is also a
+#   Blender datablock and serialises itself.
 #
-#   A lightweight load_post handler restores the runtime cache and
-#   rebuilds the internal node chain after file load.  It does NOT
-#   serialize or write any data — it only reads the already-persisted
-#   ID properties back into the transient CollectionProperty.
+#   The only place where we manually move data around is `copy()`,
+#   because node duplication in Blender does not automatically copy
+#   CollectionProperty contents from the source node to the new one.
 
 import bpy
 from bpy.props import CollectionProperty
@@ -37,66 +36,9 @@ from bpy.types import ShaderNodeCustomGroup
 from .properties import StackLayerProperties
 from .utils import get_node_id
 
-DEBUG = True
-
-# Guard flag: suppresses property-update callbacks during bulk operations
-# (copy, rebuild_group, _restore_layers) to prevent cascading rebuilds.
+# Suppresses property-update callbacks during bulk operations
+# (copy, rebuild_group) to prevent cascading rebuilds.
 _suppress_updates = False
-
-
-def _dbg(*args):
-    if DEBUG:
-        print("[Stack]", *args)
-
-
-# ------------------------------------------------------------------
-# ID-property helpers
-# ------------------------------------------------------------------
-
-_PREFIX = "_sl_"
-
-
-def _write_layer_props(nt, idx, name="", blend="MIX", opacity=1.0,
-                       enabled=True, collapsed=False):
-    """Write a single layer's properties as ID props on *nt*."""
-    nt[f"{_PREFIX}{idx}_name"]      = name
-    nt[f"{_PREFIX}{idx}_blend"]     = blend
-    nt[f"{_PREFIX}{idx}_opacity"]   = opacity
-    nt[f"{_PREFIX}{idx}_enabled"]   = int(enabled)
-    nt[f"{_PREFIX}{idx}_collapsed"] = int(collapsed)
-
-
-def _read_layer_props(nt, idx):
-    """Read a single layer's properties from ID props on *nt*.
-    Returns a dict, or None if the key is missing."""
-    key = f"{_PREFIX}{idx}_blend"
-    if key not in nt:
-        return None
-    return {
-        "layer_name":  nt.get(f"{_PREFIX}{idx}_name", ""),
-        "blend_mode":  nt.get(f"{_PREFIX}{idx}_blend", "MIX"),
-        "opacity":     nt.get(f"{_PREFIX}{idx}_opacity", 1.0),
-        "enabled":     bool(nt.get(f"{_PREFIX}{idx}_enabled", 1)),
-        "collapsed":   bool(nt.get(f"{_PREFIX}{idx}_collapsed", 0)),
-    }
-
-
-def _get_layer_count(nt):
-    """Return the persisted layer count."""
-    return nt.get(f"{_PREFIX}count", 0)
-
-
-def _set_layer_count(nt, count):
-    """Set the persisted layer count."""
-    nt[f"{_PREFIX}count"] = count
-
-
-def _clear_layer_props(nt, idx):
-    """Remove all ID props for layer *idx*."""
-    for suffix in ("_name", "_blend", "_opacity", "_enabled", "_collapsed"):
-        key = f"{_PREFIX}{idx}{suffix}"
-        if key in nt:
-            del nt[key]
 
 
 class StackNode(ShaderNodeCustomGroup):
@@ -106,70 +48,20 @@ class StackNode(ShaderNodeCustomGroup):
     bl_icon = 'NODE_COMPOSITING'
     bl_width_default = 240
 
-    # Runtime-only cache — NOT serialized by Blender.
-    # Rebuilt on demand from ID properties on node_tree.
     layers: CollectionProperty(type=StackLayerProperties)
-
-    # ------------------------------------------------------------------
-    # Runtime cache management
-    # ------------------------------------------------------------------
-
-    def _restore_layers(self):
-        """Rebuild the runtime CollectionProperty from ID properties.
-        Returns True if layers were restored, False if nothing to do."""
-        global _suppress_updates
-        nt = self.node_tree
-        if nt is None:
-            return False
-
-        count = _get_layer_count(nt)
-        if count == 0:
-            return False
-
-        # Already in sync?
-        if len(self.layers) == count:
-            d = _read_layer_props(nt, 0)
-            if d and self.layers[0].blend_mode == d["blend_mode"]:
-                return False
-
-        _suppress_updates = True
-        try:
-            self.layers.clear()
-            for i in range(count):
-                d = _read_layer_props(nt, i)
-                if d is None:
-                    d = {"layer_name": f"Layer {i}", "blend_mode": "MIX",
-                         "opacity": 1.0, "enabled": True, "collapsed": False}
-                    _write_layer_props(nt, i, **d)
-                layer = self.layers.add()
-                layer.layer_name  = d["layer_name"]
-                layer.blend_mode  = d["blend_mode"]
-                layer.opacity     = d["opacity"]
-                layer.enabled     = d["enabled"]
-                layer.collapsed   = d["collapsed"]
-                layer.layer_index = i
-            _dbg(f"_restore_layers: rebuilt {count} layers from ID props "
-                 f"on {nt.name}")
-            return True
-        finally:
-            _suppress_updates = False
-
-    def ensure_layers(self):
-        """Public accessor — guarantees layers are populated."""
-        if len(self.layers) == 0 and self.node_tree:
-            if _get_layer_count(self.node_tree) > 0:
-                self._restore_layers()
-                self.rebuild_internals()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def init(self, context):
-        _dbg(f"init() called -- id(self)={id(self)}")
         self.node_tree = bpy.data.node_groups.new(
             f".stack_{id(self)}", 'ShaderNodeTree',
         )
+        # ShaderNodeCustomGroup.node_tree assignment does not increment the
+        # referenced datablock's user count, so on save Blender treats the
+        # node_tree as orphan and purges it.  use_fake_user keeps it alive.
+        self.node_tree.use_fake_user = True
 
         self.node_tree.interface.new_socket(
             name="Color", in_out='OUTPUT', socket_type='NodeSocketColor',
@@ -187,37 +79,37 @@ class StackNode(ShaderNodeCustomGroup):
         finally:
             _suppress_updates = False
 
-        _write_layer_props(self.node_tree, 0,
-                           name="Layer 0", blend="MIX", opacity=1.0,
-                           enabled=True, collapsed=False)
-        _set_layer_count(self.node_tree, 1)
-
         self.add_layer_to_group(0)
         self.rebuild_internals()
 
     def free(self):
         if self.node_tree:
+            self.node_tree.use_fake_user = False
             bpy.data.node_groups.remove(self.node_tree)
 
     def copy(self, original):
         """Called when this node is duplicated (Shift+D).
 
-        The node_tree is shared at this point.  We copy it to get an
-        independent datablock — the ID properties come along for free.
-        Then we rebuild the runtime CollectionProperty from those props.
+        Blender shares the node_tree by default; we copy it so the new
+        node owns an independent datablock.  We also explicitly copy the
+        `layers` CollectionProperty contents because node duplication
+        does not propagate collection items from source to destination.
         """
         global _suppress_updates
         _suppress_updates = True
         try:
-            _dbg(f"copy() called -- original.node_tree={original.node_tree}")
+            self.node_tree = original.node_tree.copy()
+            self.node_tree.use_fake_user = True
 
-            new_tree = original.node_tree.copy()
-            self.node_tree = new_tree
-
-            self._restore_layers()
-
-            _dbg(f"copy() done -- layers: {len(self.layers)}, "
-                 f"inputs: {len(self.inputs)}")
+            self.layers.clear()
+            for src in original.layers:
+                dst = self.layers.add()
+                dst.layer_name  = src.layer_name
+                dst.blend_mode  = src.blend_mode
+                dst.opacity     = src.opacity
+                dst.enabled     = src.enabled
+                dst.collapsed   = src.collapsed
+                dst.layer_index = src.layer_index
         finally:
             _suppress_updates = False
 
@@ -438,14 +330,6 @@ class StackNode(ShaderNodeCustomGroup):
     # ------------------------------------------------------------------
 
     def draw_buttons(self, context, layout):
-        # Lazy restore: if the runtime cache is empty but ID props exist,
-        # rebuild the cache and internal nodes now.
-        if len(self.layers) == 0 and self.node_tree:
-            if _get_layer_count(self.node_tree) > 0:
-                _dbg("draw_buttons: lazy restore triggered")
-                self._restore_layers()
-                self.rebuild_internals()
-
         nid = get_node_id(self)
 
         op = layout.operator(

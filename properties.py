@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# properties.py — Layer property group (runtime cache, persisted via ID props)
+# properties.py — Per-layer property group
 
 from bpy.props import (
     BoolProperty,
@@ -30,26 +30,17 @@ from .utils import find_owner_node
 
 
 def _on_layer_prop_changed(prop, context):
-    """Write changed value to ID properties and rebuild internals."""
+    """Rebuild the node's internal chain when a layer property changes."""
     from .node import _suppress_updates
     if _suppress_updates:
         return
     node = find_owner_node(prop)
     if node:
-        # Sync this layer's current values to ID properties on node_tree.
-        idx = prop.layer_index
-        nt = node.node_tree
-        if nt is not None:
-            nt[f"_sl_{idx}_name"]      = prop.layer_name
-            nt[f"_sl_{idx}_blend"]     = prop.blend_mode
-            nt[f"_sl_{idx}_opacity"]   = prop.opacity
-            nt[f"_sl_{idx}_enabled"]   = int(prop.enabled)
-            nt[f"_sl_{idx}_collapsed"] = int(prop.collapsed)
         node.rebuild_internals()
 
 
 class StackLayerProperties(PropertyGroup):
-    """Properties for a single stack layer (runtime cache)."""
+    """Properties for a single stack layer."""
 
     layer_name: StringProperty(
         name="Layer Name",

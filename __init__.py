@@ -23,11 +23,10 @@ Stacks and blends texture layers with blend modes, opacity, and masking.
 """
 
 import bpy
-from bpy.app.handlers import persistent
 
 from .properties import StackLayerProperties
 from .operators import STACK_OT_add_layer, STACK_OT_remove_layer, STACK_OT_move_layer
-from .node import StackNode, _dbg
+from .node import StackNode
 from .menu import NODE_MT_stack_custom, stack_menu_draw
 
 classes = (
@@ -40,63 +39,13 @@ classes = (
 )
 
 
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-def _iter_stack_nodes():
-    """Yield every StackNode instance across all materials and node groups."""
-    for mat in bpy.data.materials:
-        if mat.node_tree:
-            for node in mat.node_tree.nodes:
-                if node.bl_idname == "StackNodeType":
-                    yield node
-    for tree in bpy.data.node_groups:
-        for node in tree.nodes:
-            if node.bl_idname == "StackNodeType":
-                yield node
-
-
-# ------------------------------------------------------------------
-# Load handler — restore runtime cache from persisted ID properties
-#
-# This handler does NOT serialize or write any data.  It only reads
-# the ID properties that Blender already saved to disk and populates
-# the transient CollectionProperty + rebuilds internal nodes.
-# ------------------------------------------------------------------
-
-@persistent
-def _stack_load_post(filepath):
-    """Restore runtime layer cache after file load."""
-    _dbg("load_post handler fired")
-    count = 0
-    for node in _iter_stack_nodes():
-        if node._restore_layers():
-            node.rebuild_internals()
-            count += 1
-    _dbg(f"load_post: restored {count} StackNode(s)")
-
-
-# ------------------------------------------------------------------
-# Registration
-# ------------------------------------------------------------------
-
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.NODE_MT_add.append(stack_menu_draw)
 
-    bpy.app.handlers.load_post.append(_stack_load_post)
-
-    _dbg("Stack addon registered")
-
 
 def unregister():
-    if _stack_load_post in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.remove(_stack_load_post)
-
     bpy.types.NODE_MT_add.remove(stack_menu_draw)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-    _dbg("Stack addon unregistered")
