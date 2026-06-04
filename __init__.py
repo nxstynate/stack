@@ -22,11 +22,22 @@ Layer blending node for the Shader Editor.
 Stacks and blends texture layers with blend modes, opacity, and masking.
 """
 
+bl_info = {
+    "name": "Stack",
+    "author": "NXSTYNATE",
+    "version": (1, 1, 0),
+    "blender": (4, 5, 0),
+    "location": "Shader Editor > Add > Custom",
+    "description": "Layer blending nodes (Stack, BSDF Stack) with blend modes, opacity, masking",
+    "category": "Node",
+}
+
 import bpy
 
 from .properties import StackLayerProperties
 from .operators import STACK_OT_add_layer, STACK_OT_remove_layer, STACK_OT_move_layer
 from .node import StackNode
+from .bsdf_node import BSDFStackNode
 from .menu import NODE_MT_stack_custom, stack_menu_draw
 
 classes = (
@@ -35,6 +46,7 @@ classes = (
     STACK_OT_remove_layer,
     STACK_OT_move_layer,
     StackNode,
+    BSDFStackNode,
     NODE_MT_stack_custom,
 )
 

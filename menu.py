@@ -27,6 +27,9 @@ class NODE_MT_stack_custom(Menu):
         self.layout.operator(
             "node.add_node", text="Stack",
         ).type = "StackNodeType"
+        self.layout.operator(
+            "node.add_node", text="BSDF Stack",
+        ).type = "BSDFStackNodeType"
 
 
 def stack_menu_draw(self, context):

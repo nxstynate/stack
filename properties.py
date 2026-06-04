@@ -36,6 +36,13 @@ def _on_layer_prop_changed(prop, context):
         node.rebuild_internals()
 
 
+def _on_layer_name_changed(prop, context):
+    """Sync per-layer panel headers (BSDFStackNode only) without rebuilding."""
+    node = find_owner_node(prop)
+    if node and hasattr(node, 'sync_panel_names'):
+        node.sync_panel_names()
+
+
 class StackLayerProperties(PropertyGroup):
     """Properties for a single stack layer."""
 
@@ -43,6 +50,7 @@ class StackLayerProperties(PropertyGroup):
         name="Layer Name",
         default="",
         description="Custom name for this layer",
+        update=lambda self, ctx: _on_layer_name_changed(self, ctx),
     )
 
     blend_mode: EnumProperty(
